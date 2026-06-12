@@ -67,7 +67,7 @@
         if (cid) ctx.channelId = cid;
         return woff.getProfile();
       })
-      .then(function (p) { ctx.userId = p.userId || ''; ctx.userName = p.name || ''; })
+      .then(function (p) { ctx.userId = p.userId || ''; ctx.userName = p.displayName || p.name || ''; })
       .catch(function (e) { console.log('init/profile取得スキップ', e); })
       .finally(function () {
         // デバッグ表示: 取得できたchannelId/userIdを画面下に出す(確認後に消してOK)
