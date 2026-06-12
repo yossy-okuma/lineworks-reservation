@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>設備予約</title>
-  <!-- WOFF SDK -->
-  <script src="https://static.worksmobile.net/static/wm/woff/edge/3.6/sdk.js"></script>
+  <!-- WOFF SDK (getChannelId は 3.7.1 以降が必須) -->
+  <script src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
   <style>
     * { box-sizing: border-box; }
     body { font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", sans-serif;
@@ -44,11 +44,12 @@
 
   <button id="submit" disabled>予約する</button>
   <div id="msg"></div>
+  <div id="debug" class="hint" style="margin-top:18px;word-break:break-all;"></div>
 
   <script>
     // ▼▼ 2か所だけ自分の値に置換 ▼▼
-    var WOFF_ID  = '2mFBN2FN_bbL97UOTBTQIA';   // Developer ConsoleのWOFF ID
-    var GAS_API  = 'https://script.google.com/macros/s/AKfycbytUp-B4RclHvt7m2h_IhGje0DdD4Kpn_EEg_4cov-1Os3bEppN7eZlCISglVTj96UW/exec'; // GASウェブアプリの /exec URL
+    var WOFF_ID  = 'PUT_WOFF_ID';   // Developer ConsoleのWOFF ID
+    var GAS_API  = 'PUT_GAS_EXEC_URL'; // GASウェブアプリの /exec URL
     // ▲▲ ここまで ▲▲
 
     var RES = [];
@@ -56,14 +57,23 @@
 
     // --- WOFF初期化: ユーザーID・名前・トークルームIDを取得 ---
     woff.init({ woffId: WOFF_ID })
-      .then(function () { return woff.getProfile(); })
+      .then(function () {
+        // channelId: トークルームから開いたときのみ取得可(モバイルアプリ/SDK3.7.1+)。
+        // getContext()では取れないので getChannelId() を使う。
+        try {
+          if (woff.getChannelId) {
+            var cid = woff.getChannelId();
+            if (cid) ctx.channelId = cid;
+          }
+        } catch (e) { console.log('getChannelIdスキップ', e); }
+        return woff.getProfile();
+      })
       .then(function (p) { ctx.userId = p.userId || ''; ctx.userName = p.name || ''; })
       .catch(function (e) { console.log('profile取得スキップ', e); })
       .finally(function () {
-        try {
-          var c = woff.getContext && woff.getContext();
-          if (c && (c.channelId || c.roomId)) ctx.channelId = c.channelId || c.roomId;
-        } catch (e) {}
+        // デバッグ表示: 取得できたchannelId/userIdを画面下に出す(確認後に消してOK)
+        var dbg = document.getElementById('debug');
+        if (dbg) dbg.textContent = 'channelId=' + (ctx.channelId || '(なし)') + ' / userId=' + (ctx.userId || '(なし)');
         loadResources();
       });
 
