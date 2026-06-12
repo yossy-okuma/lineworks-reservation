@@ -48,8 +48,8 @@
 
   <script>
     // ▼▼ 2か所だけ自分の値に置換 ▼▼
-    var WOFF_ID  = '2mFBN2FN_bbL97UOTBTQIA';   // Developer ConsoleのWOFF ID
-    var GAS_API  = 'https://script.google.com/macros/s/AKfycbytUp-B4RclHvt7m2h_IhGje0DdD4Kpn_EEg_4cov-1Os3bEppN7eZlCISglVTj96UW/exec'; // GASウェブアプリの /exec URL
+    var WOFF_ID  = 'PUT_WOFF_ID';   // Developer ConsoleのWOFF ID
+    var GAS_API  = 'PUT_GAS_EXEC_URL'; // GASウェブアプリの /exec URL
     // ▲▲ ここまで ▲▲
 
     var RES = [];
@@ -59,17 +59,16 @@
     woff.init({ woffId: WOFF_ID })
       .then(function () {
         // channelId: トークルームから開いたときのみ取得可(モバイルアプリ/SDK3.7.1+)。
-        // getContext()では取れないので getChannelId() を使う。
-        try {
-          if (woff.getChannelId) {
-            var cid = woff.getChannelId();
-            if (cid) ctx.channelId = cid;
-          }
-        } catch (e) { console.log('getChannelIdスキップ', e); }
+        // getContext()では取れない。getChannelId()はPromiseを返すので必ずthenで受ける。
+        if (!woff.getChannelId) return '';
+        return woff.getChannelId().catch(function () { return ''; });
+      })
+      .then(function (cid) {
+        if (cid) ctx.channelId = cid;
         return woff.getProfile();
       })
       .then(function (p) { ctx.userId = p.userId || ''; ctx.userName = p.name || ''; })
-      .catch(function (e) { console.log('profile取得スキップ', e); })
+      .catch(function (e) { console.log('init/profile取得スキップ', e); })
       .finally(function () {
         // デバッグ表示: 取得できたchannelId/userIdを画面下に出す(確認後に消してOK)
         var dbg = document.getElementById('debug');
