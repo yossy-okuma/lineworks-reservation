@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>設備予約</title>
+  <!-- WOFF SDK -->
+  <script src="https://static.worksmobile.net/static/wm/woff/edge/3.6/sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", sans-serif;
+           margin: 0; padding: 16px; background: #f5f6f8; color: #222; }
+    h1 { font-size: 18px; margin: 0 0 16px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+    select, input { width: 100%; padding: 11px; font-size: 16px; border: 1px solid #ccc;
+                    border-radius: 8px; background: #fff; }
+    button { width: 100%; margin-top: 22px; padding: 14px; font-size: 16px; font-weight: 700;
+             color: #fff; background: #00c300; border: none; border-radius: 8px; }
+    button:disabled { background: #9bd89b; }
+    .msg { margin-top: 14px; padding: 12px; border-radius: 8px; font-size: 14px; white-space: pre-wrap; }
+    .ok  { background: #e8f7e8; color: #176b17; }
+    .ng  { background: #fdeaea; color: #a31515; }
+    .hint{ font-size: 12px; color: #888; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h1>設備予約</h1>
+
+  <label>設備カテゴリ</label>
+  <select id="category"></select>
+
+  <label>設備</label>
+  <select id="resource"></select>
+
+  <label>件名</label>
+  <input id="title" type="text" placeholder="例: 現場A 測量">
+
+  <label>開始</label>
+  <input id="start" type="datetime-local">
+
+  <label>終了</label>
+  <input id="end" type="datetime-local">
+  <div class="hint" id="availHint"></div>
+
+  <button id="submit" disabled>予約する</button>
+  <div id="msg"></div>
+
+  <script>
+    // ▼▼ 2か所だけ自分の値に置換 ▼▼
+    var WOFF_ID  = 'PUT_WOFF_ID';   // Developer ConsoleのWOFF ID
+    var GAS_API  = 'PUT_GAS_EXEC_URL'; // GASウェブアプリの /exec URL
+    // ▲▲ ここまで ▲▲
+
+    var RES = [];
+    var ctx = { userId: '', userName: '', channelId: '' };
+
+    // --- WOFF初期化: ユーザーID・名前・トークルームIDを取得 ---
+    woff.init({ woffId: WOFF_ID })
+      .then(function () { return woff.getProfile(); })
+      .then(function (p) { ctx.userId = p.userId || ''; ctx.userName = p.name || ''; })
+      .catch(function (e) { console.log('profile取得スキップ', e); })
+      .finally(function () {
+        try {
+          var c = woff.getContext && woff.getContext();
+          if (c && (c.channelId || c.roomId)) ctx.channelId = c.channelId || c.roomId;
+        } catch (e) {}
+        loadResources();
+      });
+
+    // --- GAS API呼び出し (CORSプリフライト回避のため text/plain で送る) ---
+    function callApi(action, payload) {
+      return fetch(GAS_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: action, payload: payload || {} })
+      }).then(function (r) { return r.json(); });
+    }
+
+    function loadResources() {
+      callApi('getResources').then(function (list) {
+        RES = list;
+        var cats = list.map(function (r) { return r.category; })
+                       .filter(function (v, i, a) { return a.indexOf(v) === i; });
+        fill('category', cats);
+        onCategoryChange();
+      }).catch(function (e) {
+        showMsg('設備一覧の取得に失敗: ' + e.message, false);
+      });
+    }
+
+    function fill(id, arr) {
+      var sel = document.getElementById(id); sel.innerHTML = '';
+      arr.forEach(function (v) {
+        var o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o);
+      });
+    }
+
+    function onCategoryChange() {
+      var cat = document.getElementById('category').value;
+      var items = RES.filter(function (r) { return r.category === cat; });
+      var sel = document.getElementById('resource'); sel.innerHTML = '';
+      items.forEach(function (r) {
+        var o = document.createElement('option'); o.value = r.resourceId; o.textContent = r.name; sel.appendChild(o);
+      });
+      checkAvail();
+    }
+
+    function checkAvail() {
+      var rid = document.getElementById('resource').value;
+      var s = document.getElementById('start').value, e = document.getElementById('end').value;
+      var hint = document.getElementById('availHint'), btn = document.getElementById('submit');
+      if (!rid || !s || !e) { hint.textContent = ''; btn.disabled = true; return; }
+      hint.textContent = '空き状況を確認中...'; btn.disabled = true;
+      callApi('checkAvailability', { resourceId: rid, start: toIso(s), end: toIso(e) })
+        .then(function (r) {
+          if (r.ok) { hint.textContent = '◎ 予約可能'; hint.style.color = '#176b17'; btn.disabled = false; }
+          else { hint.textContent = '× ' + r.message; hint.style.color = '#a31515'; btn.disabled = true; }
+        });
+    }
+
+    function toIso(localValue) { return new Date(localValue).toISOString(); }
+
+    function showMsg(text, ok) {
+      var msg = document.getElementById('msg');
+      msg.textContent = text; msg.className = 'msg ' + (ok ? 'ok' : 'ng');
+    }
+
+    document.getElementById('category').addEventListener('change', onCategoryChange);
+    document.getElementById('resource').addEventListener('change', checkAvail);
+    document.getElementById('start').addEventListener('change', checkAvail);
+    document.getElementById('end').addEventListener('change', checkAvail);
+
+    document.getElementById('submit').addEventListener('click', function () {
+      var btn = this; btn.disabled = true;
+      showMsg('送信中...', true);
+      var payload = {
+        resourceId: document.getElementById('resource').value,
+        title: document.getElementById('title').value || '設備予約',
+        start: toIso(document.getElementById('start').value),
+        end:   toIso(document.getElementById('end').value),
+        userId: ctx.userId, userName: ctx.userName, channelId: ctx.channelId
+      };
+      callApi('submitReservation', payload).then(function (r) {
+        showMsg(r.message, r.ok);
+        if (!r.ok) { btn.disabled = false; return; }
+        if (woff.isInClient && woff.isInClient()) {
+          setTimeout(function () { woff.closeWindow && woff.closeWindow(); }, 1500);
+        }
+      }).catch(function (err) {
+        showMsg('通信エラー: ' + err.message, false); btn.disabled = false;
+      });
+    });
+  </script>
+</body>
+</html>
