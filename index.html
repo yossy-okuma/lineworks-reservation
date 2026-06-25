@@ -10,21 +10,34 @@
     * { box-sizing: border-box; }
     body { font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", sans-serif;
            margin: 0; padding: 16px; background: #f5f6f8; color: #222; }
-    h1 { font-size: 18px; margin: 0 0 16px; }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    h2 { font-size: 15px; margin: 28px 0 10px; padding-top: 18px; border-top: 1px solid #e2e4e8; }
     label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
     select, input { width: 100%; padding: 11px; font-size: 16px; border: 1px solid #ccc;
                     border-radius: 8px; background: #fff; }
     button { width: 100%; margin-top: 22px; padding: 14px; font-size: 16px; font-weight: 700;
              color: #fff; background: #00c300; border: none; border-radius: 8px; }
     button:disabled { background: #9bd89b; }
+    .btn-sub { margin-top: 8px; background: #888; }
     .msg { margin-top: 14px; padding: 12px; border-radius: 8px; font-size: 14px; white-space: pre-wrap; }
     .ok  { background: #e8f7e8; color: #176b17; }
     .ng  { background: #fdeaea; color: #a31515; }
     .hint{ font-size: 12px; color: #888; margin-top: 4px; }
+    .card { background: #fff; border: 1px solid #e2e4e8; border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+    .card .t { font-weight: 700; font-size: 15px; }
+    .card .d { font-size: 13px; color: #555; margin-top: 3px; }
+    .row { display: flex; gap: 8px; margin-top: 10px; }
+    .row button { margin-top: 0; padding: 9px; font-size: 14px; }
+    .b-edit { background: #2d7ff9; }
+    .b-cancel { background: #e0533d; }
+    #editBanner { display:none; background:#fff7e0; border:1px solid #f0d488; color:#8a6d00;
+                  padding:10px; border-radius:8px; font-size:13px; margin-bottom:6px; }
   </style>
 </head>
 <body>
   <h1>設備予約</h1>
+
+  <div id="editBanner">✏️ 予約を修正中です。内容を変えて「修正を保存」を押してください。</div>
 
   <label>設備カテゴリ</label>
   <select id="category"></select>
@@ -43,40 +56,41 @@
   <div class="hint" id="availHint"></div>
 
   <button id="submit" disabled>予約する</button>
+  <button id="cancelEdit" class="btn-sub" style="display:none;">修正をやめる</button>
   <div id="msg"></div>
+
+  <h2>自分の予約</h2>
+  <div id="myList" class="hint">読み込み中...</div>
+
   <div id="debug" class="hint" style="margin-top:18px;word-break:break-all;"></div>
 
   <script>
     // ▼▼ 2か所だけ自分の値に置換 ▼▼
-    var WOFF_ID  = '2mFBN2FN_bbL97UOTBTQIA';   // Developer ConsoleのWOFF ID
-    var GAS_API  = 'https://script.google.com/macros/s/AKfycbytUp-B4RclHvt7m2h_IhGje0DdD4Kpn_EEg_4cov-1Os3bEppN7eZlCISglVTj96UW/exec'; // GASウェブアプリの /exec URL
+    var WOFF_ID  = 'PUT_WOFF_ID';   // Developer ConsoleのWOFF ID
+    var GAS_API  = 'PUT_GAS_EXEC_URL'; // GASウェブアプリの /exec URL
     // ▲▲ ここまで ▲▲
 
     var RES = [];
     var ctx = { userId: '', userName: '', channelId: '' };
+    var editingEventId = null; // 修正中の予約ID(nullなら新規)
 
-    // --- WOFF初期化: ユーザーID・名前・トークルームIDを取得 ---
+    // --- WOFF初期化 ---
     woff.init({ woffId: WOFF_ID })
       .then(function () {
-        // channelId: トークルームから開いたときのみ取得可(モバイルアプリ/SDK3.7.1+)。
-        // getContext()では取れない。getChannelId()はPromiseを返すので必ずthenで受ける。
         if (!woff.getChannelId) return '';
         return woff.getChannelId().catch(function () { return ''; });
       })
-      .then(function (cid) {
-        if (cid) ctx.channelId = cid;
-        return woff.getProfile();
-      })
+      .then(function (cid) { if (cid) ctx.channelId = cid; return woff.getProfile(); })
       .then(function (p) { ctx.userId = p.userId || ''; ctx.userName = p.displayName || p.name || ''; })
       .catch(function (e) { console.log('init/profile取得スキップ', e); })
       .finally(function () {
-        // デバッグ表示: 取得できたchannelId/userIdを画面下に出す(確認後に消してOK)
         var dbg = document.getElementById('debug');
         if (dbg) dbg.textContent = 'channelId=' + (ctx.channelId || '(なし)') + ' / userId=' + (ctx.userId || '(なし)');
         loadResources();
+        loadMyReservations();
       });
 
-    // --- GAS API呼び出し (CORSプリフライト回避のため text/plain で送る) ---
+    // --- GAS API呼び出し ---
     function callApi(action, payload) {
       return fetch(GAS_API, {
         method: 'POST',
@@ -92,9 +106,7 @@
                        .filter(function (v, i, a) { return a.indexOf(v) === i; });
         fill('category', cats);
         onCategoryChange();
-      }).catch(function (e) {
-        showMsg('設備一覧の取得に失敗: ' + e.message, false);
-      });
+      }).catch(function (e) { showMsg('設備一覧の取得に失敗: ' + e.message, false); });
     }
 
     function fill(id, arr) {
@@ -128,12 +140,90 @@
     }
 
     function toIso(localValue) { return new Date(localValue).toISOString(); }
-
+    function toLocalInput(iso) {
+      // ISO → datetime-local("YYYY-MM-DDTHH:mm")
+      var d = new Date(iso);
+      var p = function (n) { return ('0' + n).slice(-2); };
+      return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate())
+           + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+    function fmtJa(iso) {
+      var d = new Date(iso), w = ['日','月','火','水','木','金','土'][d.getDay()];
+      var p = function (n) { return ('0' + n).slice(-2); };
+      return (d.getMonth()+1) + '/' + d.getDate() + '(' + w + ') ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
     function showMsg(text, ok) {
       var msg = document.getElementById('msg');
       msg.textContent = text; msg.className = 'msg ' + (ok ? 'ok' : 'ng');
     }
 
+    // --- 自分の予約一覧 ---
+    function loadMyReservations() {
+      var box = document.getElementById('myList');
+      if (!ctx.userId) { box.textContent = '（スマホのトークルームから開くと予約一覧が表示されます）'; return; }
+      box.textContent = '読み込み中...';
+      callApi('getMyReservations', { userId: ctx.userId }).then(function (list) {
+        if (!list || !list.length) { box.textContent = '今後の予約はありません。'; return; }
+        box.className = ''; box.innerHTML = '';
+        list.forEach(function (it) {
+          var card = document.createElement('div'); card.className = 'card';
+          card.innerHTML =
+            '<div class="t">' + esc(it.resourceName) + '</div>' +
+            '<div class="d">' + esc(it.title) + '</div>' +
+            '<div class="d">' + fmtJa(it.start) + ' 〜 ' + fmtJa(it.end) + '</div>';
+          var row = document.createElement('div'); row.className = 'row';
+          var be = document.createElement('button'); be.className = 'b-edit'; be.textContent = '修正';
+          be.onclick = function () { startEdit(it); };
+          var bc = document.createElement('button'); bc.className = 'b-cancel'; bc.textContent = '取消';
+          bc.onclick = function () { doCancel(it); };
+          row.appendChild(be); row.appendChild(bc);
+          card.appendChild(row); box.appendChild(card);
+        });
+      }).catch(function (e) { box.textContent = '予約一覧の取得に失敗: ' + e.message; });
+    }
+
+    function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]); }); }
+
+    function doCancel(it) {
+      if (!confirm('この予約を取り消しますか？\n' + it.resourceName + ' ' + fmtJa(it.start))) return;
+      showMsg('取消中...', true);
+      callApi('cancelReservation', { eventId: it.eventId, userId: ctx.userId, channelId: it.channelId || ctx.channelId })
+        .then(function (r) { showMsg(r.message, r.ok); loadMyReservations(); })
+        .catch(function (e) { showMsg('通信エラー: ' + e.message, false); });
+    }
+
+    // --- 修正モード ---
+    function startEdit(it) {
+      editingEventId = it.eventId;
+      // カテゴリ→設備を選択状態にする
+      var resObj = RES.filter(function (r) { return r.resourceId === it.resourceId; })[0];
+      if (resObj) {
+        document.getElementById('category').value = resObj.category;
+        onCategoryChange();
+        document.getElementById('resource').value = it.resourceId;
+      }
+      document.getElementById('title').value = it.title;
+      document.getElementById('start').value = toLocalInput(it.start);
+      document.getElementById('end').value = toLocalInput(it.end);
+      document.getElementById('editBanner').style.display = 'block';
+      document.getElementById('submit').textContent = '修正を保存';
+      document.getElementById('cancelEdit').style.display = 'block';
+      checkAvail();
+      window.scrollTo(0, 0);
+    }
+
+    function exitEdit() {
+      editingEventId = null;
+      document.getElementById('editBanner').style.display = 'none';
+      document.getElementById('submit').textContent = '予約する';
+      document.getElementById('cancelEdit').style.display = 'none';
+      document.getElementById('title').value = '';
+      document.getElementById('start').value = '';
+      document.getElementById('end').value = '';
+      checkAvail();
+    }
+
+    document.getElementById('cancelEdit').addEventListener('click', exitEdit);
     document.getElementById('category').addEventListener('change', onCategoryChange);
     document.getElementById('resource').addEventListener('change', checkAvail);
     document.getElementById('start').addEventListener('change', checkAvail);
@@ -142,18 +232,24 @@
     document.getElementById('submit').addEventListener('click', function () {
       var btn = this; btn.disabled = true;
       showMsg('送信中...', true);
-      var payload = {
+      var base = {
         resourceId: document.getElementById('resource').value,
         title: document.getElementById('title').value || '設備予約',
         start: toIso(document.getElementById('start').value),
         end:   toIso(document.getElementById('end').value),
         userId: ctx.userId, userName: ctx.userName, channelId: ctx.channelId
       };
-      callApi('submitReservation', payload).then(function (r) {
+      var action, payload;
+      if (editingEventId) { action = 'updateReservation'; payload = Object.assign({ oldEventId: editingEventId }, base); }
+      else { action = 'submitReservation'; payload = base; }
+
+      callApi(action, payload).then(function (r) {
         showMsg(r.message, r.ok);
         if (!r.ok) { btn.disabled = false; return; }
+        exitEdit();
+        loadMyReservations();
         if (woff.isInClient && woff.isInClient()) {
-          setTimeout(function () { woff.closeWindow && woff.closeWindow(); }, 1500);
+          setTimeout(function () { woff.closeWindow && woff.closeWindow(); }, 1800);
         }
       }).catch(function (err) {
         showMsg('通信エラー: ' + err.message, false); btn.disabled = false;
