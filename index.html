@@ -84,6 +84,23 @@
                   padding:13px 15px; border-radius:12px; font-size:14px; margin-bottom:8px;
                   box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
     #debug { word-break: break-all; }
+
+    /* PC注意ポップアップ */
+    #pcOverlay {
+      display: none; position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,0.4); align-items: center; justify-content: center; padding: 24px;
+      -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+    }
+    #pcOverlay.show { display: flex; }
+    .pc-modal {
+      background: var(--ios-card); border-radius: 18px; padding: 24px 22px;
+      max-width: 340px; width: 100%; text-align: center;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+    }
+    .pc-ic { font-size: 40px; line-height: 1; margin-bottom: 10px; }
+    .pc-title { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+    .pc-body { font-size: 14px; color: var(--ios-sub); line-height: 1.7; text-align: left; }
+    .pc-btn { margin-top: 20px; background: var(--ios-blue); }
   </style>
 </head>
 <body>
@@ -111,6 +128,21 @@
   <button id="cancelEdit" class="btn-sub" style="display:none;">修正をやめる</button>
   <div id="msg"></div>
 
+  <!-- PC等で開いたときの注意ポップアップ -->
+  <div id="pcOverlay">
+    <div class="pc-modal">
+      <div class="pc-ic">⚠️</div>
+      <div class="pc-title">スマホアプリから開いてください</div>
+      <div class="pc-body">
+        PC・ブラウザからの予約は、<b>正しく登録されません</b>。<br>
+        ・他の人の予定ではなく自分の予定に入る<br>
+        ・トークルームへのお知らせが流れない<br><br>
+        <b>LINE WORKSアプリ（スマホ）のトークルーム</b>から予約フォームを開いてください。
+      </div>
+      <button id="pcOk" class="pc-btn">とじる</button>
+    </div>
+  </div>
+
   <h2>自分の予約</h2>
   <div id="myList" class="hint">読み込み中...</div>
 
@@ -123,12 +155,15 @@
     // ▲▲ ここまで ▲▲
 
     var RES = [];
-    var ctx = { userId: '', userName: '', channelId: '' };
+    var ctx = { userId: '', userName: '', channelId: '', clientType: '' };
     var editingEventId = null; // 修正中の予約ID(nullなら新規)
+    var isMobileApp = false;   // スマホアプリで開いているか
 
     // --- WOFF初期化 ---
     woff.init({ woffId: WOFF_ID })
       .then(function () {
+        // 実行環境を判定 (MOBILE_APP / PC_WEB / PC_APP)
+        try { var c = woff.getContext && woff.getContext(); ctx.clientType = (c && c.clientType) || ''; } catch (e) {}
         if (!woff.getChannelId) return '';
         return woff.getChannelId().catch(function () { return ''; });
       })
@@ -137,10 +172,21 @@
       .catch(function (e) { console.log('init/profile取得スキップ', e); })
       .finally(function () {
         var dbg = document.getElementById('debug');
-        if (dbg) dbg.textContent = 'channelId=' + (ctx.channelId || '(なし)') + ' / userId=' + (ctx.userId || '(なし)');
+        if (dbg) dbg.textContent = 'clientType=' + (ctx.clientType || '(なし)') + ' / channelId=' + (ctx.channelId || '(なし)') + ' / userId=' + (ctx.userId || '(なし)');
+        // スマホアプリ以外(PC/外部ブラウザ)なら注意ポップアップを出し、送信をブロック
+        isMobileApp = (ctx.clientType === 'MOBILE_APP');
+        if (!isMobileApp) showPcWarning();
         loadResources();
         loadMyReservations();
       });
+
+    // --- PC注意ポップアップ ---
+    function showPcWarning() {
+      document.getElementById('pcOverlay').classList.add('show');
+    }
+    document.getElementById('pcOk').addEventListener('click', function () {
+      document.getElementById('pcOverlay').classList.remove('show');
+    });
 
     // --- GAS API呼び出し ---
     function callApi(action, payload) {
@@ -282,7 +328,10 @@
     document.getElementById('end').addEventListener('change', checkAvail);
 
     document.getElementById('submit').addEventListener('click', function () {
-      var btn = this; btn.disabled = true;
+      var btn = this;
+      // スマホアプリ以外では登録させない(不正データ防止)
+      if (!isMobileApp) { showPcWarning(); return; }
+      btn.disabled = true;
       showMsg('送信中...', true);
       var base = {
         resourceId: document.getElementById('resource').value,
