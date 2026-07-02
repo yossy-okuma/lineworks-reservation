@@ -146,6 +146,10 @@
   <h2>自分の予約</h2>
   <div id="myList" class="hint">読み込み中...</div>
 
+  <h2>設備の予約状況</h2>
+  <select id="schResource"></select>
+  <div id="schList" class="hint" style="margin-top:10px;">設備を選ぶと予約状況が表示されます。</div>
+
   <div id="debug" class="hint" style="margin-top:18px;word-break:break-all;"></div>
 
   <script>
@@ -204,8 +208,39 @@
                        .filter(function (v, i, a) { return a.indexOf(v) === i; });
         fill('category', cats);
         onCategoryChange();
+        fillScheduleResources();
       }).catch(function (e) { showMsg('設備一覧の取得に失敗: ' + e.message, false); });
     }
+
+    // 「設備の予約状況」用の設備プルダウン(全設備をカテゴリ付きで)
+    function fillScheduleResources() {
+      var sel = document.getElementById('schResource'); sel.innerHTML = '';
+      var head = document.createElement('option');
+      head.value = ''; head.textContent = '― 設備を選択 ―'; sel.appendChild(head);
+      RES.forEach(function (r) {
+        var o = document.createElement('option');
+        o.value = r.resourceId; o.textContent = r.category + '／' + r.name; sel.appendChild(o);
+      });
+    }
+
+    function loadResourceSchedule() {
+      var rid = document.getElementById('schResource').value;
+      var box = document.getElementById('schList');
+      if (!rid) { box.className = 'hint'; box.textContent = '設備を選ぶと予約状況が表示されます。'; return; }
+      box.className = 'hint'; box.textContent = '読み込み中...';
+      callApi('getResourceSchedule', { resourceId: rid }).then(function (list) {
+        if (!list || !list.length) { box.className = 'hint'; box.textContent = '今後の予約はありません。'; return; }
+        box.className = ''; box.innerHTML = '';
+        list.forEach(function (it) {
+          var card = document.createElement('div'); card.className = 'card';
+          card.innerHTML =
+            '<div class="t">' + fmtJa(it.start) + ' 〜 ' + fmtJa(it.end) + '</div>' +
+            '<div class="d">' + esc(it.userName || '不明') + '（' + esc(it.title) + '）</div>';
+          box.appendChild(card);
+        });
+      }).catch(function (e) { box.className = 'hint'; box.textContent = '取得に失敗: ' + e.message; });
+    }
+    document.getElementById('schResource').addEventListener('change', loadResourceSchedule);
 
     function fill(id, arr) {
       var sel = document.getElementById(id); sel.innerHTML = '';
